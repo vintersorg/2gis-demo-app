@@ -1,15 +1,17 @@
 package oms
 
 import (
-	"applicationDesignTest/app"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/2gis-demo-app/log"
 )
 
 type OrderProvider struct {
 	mux    sync.RWMutex
 	orders map[string][]Order
+	logger log.Logger
 }
 
 type Order struct {
@@ -19,10 +21,16 @@ type Order struct {
 	To        time.Time
 }
 
-func NewOMS(app *app.Application) *OrderProvider {
+type BusyInterval struct {
+	From time.Time
+	To   time.Time
+}
+
+func NewOMS(logger log.Logger) *OrderProvider {
 	return &OrderProvider{
 		mux:    sync.RWMutex{},
 		orders: make(map[string][]Order),
+		logger: logger,
 	}
 }
 func (oms *OrderProvider) GetOrders(email string) ([]Order, error) {
@@ -33,7 +41,8 @@ func (oms *OrderProvider) GetOrders(email string) ([]Order, error) {
 	defer oms.mux.RUnlock()
 	res, isOK := oms.orders[email]
 	if !isOK {
-		return nil, fmt.Errorf("email %s not found", email)
+		//TODO: some logic?
+		return []Order{}, nil
 	}
 	return res, nil
 }
@@ -45,10 +54,13 @@ func (oms *OrderProvider) AddOrder(email, room string, from, to time.Time) error
 		return fmt.Errorf("room is empty")
 	}
 	currTime := time.Now()
-	if currTime.Before(from) {
+	//oms.logger.LogErrorf("OMS AddOrder: currTime is %s", currTime)
+	//oms.logger.LogErrorf("OMS AddOrder: from is %s", from)
+	//oms.logger.LogErrorf("OMS AddOrder: to is %s", to)
+	if from.Before(currTime) {
 		return fmt.Errorf("invalid from time")
 	}
-	if currTime.Before(from) {
+	if to.Before(currTime) {
 		return fmt.Errorf("invalid to time")
 	}
 	if to.Before(from) {
@@ -62,14 +74,43 @@ func (oms *OrderProvider) AddOrder(email, room string, from, to time.Time) error
 	}
 	oms.mux.Lock()
 	defer oms.mux.Unlock()
-	if oms.IsAvailable(newOrder) {
+	if oms.isAvailable(newOrder) {
 		oms.orders[email] = append(oms.orders[email], newOrder)
 	} else {
 		return fmt.Errorf("room is busy")
 	}
 	return nil
 }
-func (oms *OrderProvider) IsAvailable(order Order) bool {
+func (oms *OrderProvider) isAvailable(order Order) bool {
 	//TODO: checks
+	//TODO: need optimization. Some Stock API
+	for _, list := range oms.orders {
+		for _, item := range list {
+			//no need to check
+			if item.Room != order.Room {
+				continue
+			}
+			//new interval inside
+			if order.From.After(item.From) && order.To.Before(item.To) {
+				return false
+			}
+			//new interval cross right
+			if order.From.After(item.From) && order.From.Before(item.To) {
+				return false
+			}
+			//new interval cross left
+			if order.To.After(item.From) && order.To.Before(item.To) {
+				return false
+			}
+			//new interval bigger
+			if order.From.Before(item.From) && order.To.After(item.To) {
+				return false
+			}
+			//new interval dots equals
+			if order.From.Equal(item.From) || order.To.Equal(item.To) || order.From.Equal(item.To) || order.To.Equal(item.From) {
+				return false
+			}
+		}
+	}
 	return true
 }

@@ -1,19 +1,36 @@
 package app
 
 import (
-	"applicationDesignTest/cfg"
-	"log"
+	"fmt"
+	"net/http"
+
+	"github.com/2gis-demo-app/api"
+	"github.com/2gis-demo-app/cfg"
+	"github.com/2gis-demo-app/log"
+	"github.com/2gis-demo-app/oms"
 )
 
 type Application struct {
-	Config cfg.Config
-	Logger *log.Logger
+	config cfg.Config
+	Logger log.Logger
+	api    *api.OrderApi
 }
 
 func NewApp() *Application {
 	config := cfg.NewConfig()
+	logger := log.NewLogger(config)
+	provider := oms.NewOMS(logger)
 	return &Application{
-		Config: config,
-		Logger: log.Default(),
+		config: config,
+		Logger: logger,
+		api:    api.NewApi(logger, provider),
 	}
+}
+
+func (a *Application) Run() error {
+	err := http.ListenAndServe(fmt.Sprintf(":%d", a.config.ListenPort), a.api.Mux)
+	if err != nil {
+		return err
+	}
+	return nil
 }
